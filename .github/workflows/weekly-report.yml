@@ -1,0 +1,150 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub Action: Descarga semanal + Generación automática de PDF
+# Flota KADEL — Tracklink Chile
+#
+# Corre cada lunes a la 01:00 CLT (05:00 UTC) — mismo horario que Santa Marta,
+# deja margen de 6 horas antes del envío de n8n a las 07:00 CLT.
+#
+# Flujo completo:
+#   1. Descarga datos TrackGTS para Lun–Dom de la semana anterior
+#   2. Fusiona con historial (merge_history.py)
+#   3. Genera el PDF del reporte (umbral 100 km/h, ver generate-pdf.js)
+#   4. Hace commit de Excel + PDF al repo (n8n los descarga desde acá)
+#
+# Secrets requeridos (Settings → Secrets → Actions):
+#   TL_USER      → usuario TrackGTS (mismo que Santa Marta: amelendez)
+#   TL_PASSWORD  → contraseña TrackGTS
+#   TL_DOMAIN    → subdominio (tlchile)
+#   TL_UNIT_IDS  → unitIds de KADEL separados por coma, YA EXCLUYENDO
+#                  LTTW96, TVKC50, PKGT50, RHDZ45, SWFB15
+#                  ⚠ PENDIENTE: completar este secret antes de activar el
+#                  workflow — ver README.md para el estado del mapeo.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Descarga y Reporte Semanal
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'
+
+  workflow_dispatch:
+    inputs:
+      override_start:
+        description: 'Fecha inicio YYYY-MM-DD (opcional)'
+        required: false
+      override_end:
+        description: 'Fecha fin YYYY-MM-DD (opcional)'
+        required: false
+
+jobs:
+  generar-reporte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Calcular rango de fechas
+        id: dates
+        run: |
+          python3 << 'EOF'
+          import os
+          from datetime import datetime, timedelta
+
+          start_override = os.environ.get('INPUT_OVERRIDE_START', '').strip()
+          end_override   = os.environ.get('INPUT_OVERRIDE_END',   '').strip()
+
+          if start_override and end_override:
+              start_str = start_override
+              end_str   = end_override
+          else:
+              today = datetime.utcnow().date()
+              days_to_sunday = (today.weekday() + 1) % 7
+              last_sunday    = today - timedelta(days=days_to_sunday)
+              last_monday    = last_sunday - timedelta(days=6)
+              start_str      = last_monday.strftime('%Y-%m-%d')
+              end_str        = last_sunday.strftime('%Y-%m-%d')
+
+          cur_start        = datetime.strptime(start_str, '%Y-%m-%d').date()
+          cur_end_plus1    = datetime.strptime(end_str, '%Y-%m-%d').date() + timedelta(days=1)
+          prev_start       = cur_start - timedelta(days=7)
+
+          tl_start      = f"{cur_start.strftime('%Y/%m/%d')} 04:00:00"
+          tl_end        = f"{cur_end_plus1.strftime('%Y/%m/%d')} 03:59:59"
+          tl_start_prev = f"{prev_start.strftime('%Y/%m/%d')} 04:00:00"
+          tl_end_prev   = f"{cur_start.strftime('%Y/%m/%d')} 03:59:59"
+
+          print(f"Rango PDF: {start_str} → {end_str}")
+          print(f"Ventana TrackGTS (semana objetivo): {tl_start} → {tl_end}")
+          print(f"Ventana TrackGTS (semana previa, red de seguridad): {tl_start_prev} → {tl_end_prev}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"start={start_str}\n")
+              f.write(f"end={end_str}\n")
+              f.write(f"tl_start={tl_start}\n")
+              f.write(f"tl_end={tl_end}\n")
+              f.write(f"tl_start_prev={tl_start_prev}\n")
+              f.write(f"tl_end_prev={tl_end_prev}\n")
+          EOF
+        env:
+          INPUT_OVERRIDE_START: ${{ github.event.inputs.override_start }}
+          INPUT_OVERRIDE_END:   ${{ github.event.inputs.override_end }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependencias Node
+        run: npm install puppeteer adm-zip xlsx
+        timeout-minutes: 5
+
+      - name: Descargar semana previa (red de seguridad)
+        env:
+          TL_USER:     ${{ secrets.TL_USER }}
+          TL_PASSWORD: ${{ secrets.TL_PASSWORD }}
+          TL_DOMAIN:   ${{ secrets.TL_DOMAIN }}
+          TL_UNIT_IDS: ${{ secrets.TL_UNIT_IDS }}
+          TL_START:    ${{ steps.dates.outputs.tl_start_prev }}
+          TL_END:      ${{ steps.dates.outputs.tl_end_prev }}
+        run: node download-weekly.js && mv latest.xlsx bulk_0.xlsx
+        timeout-minutes: 8
+
+      - name: Descargar semana objetivo
+        env:
+          TL_USER:     ${{ secrets.TL_USER }}
+          TL_PASSWORD: ${{ secrets.TL_PASSWORD }}
+          TL_DOMAIN:   ${{ secrets.TL_DOMAIN }}
+          TL_UNIT_IDS: ${{ secrets.TL_UNIT_IDS }}
+          TL_START:    ${{ steps.dates.outputs.tl_start }}
+          TL_END:      ${{ steps.dates.outputs.tl_end }}
+        run: node download-weekly.js && mv latest.xlsx bulk_1.xlsx
+        timeout-minutes: 8
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias Python
+        run: pip install openpyxl
+
+      - name: Fusionar con historial
+        run: python3 merge_history.py
+
+      - name: Generar PDF del reporte
+        env:
+          REPORT_START: ${{ steps.dates.outputs.start }}
+          REPORT_END:   ${{ steps.dates.outputs.end }}
+        run: node generate-pdf.js
+        timeout-minutes: 5
+
+      - name: Commit y push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "INFORME EXCESOS DE VELOCIDAD.xlsx" "reporte-semanal.pdf"
+          git diff --staged --quiet \
+            && echo "Sin cambios — nada que commitear." \
+            || git commit -m "auto: reporte semana ${{ steps.dates.outputs.start }} → ${{ steps.dates.outputs.end }}"
+          git push
