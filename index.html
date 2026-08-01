@@ -537,6 +537,19 @@ function _doApplyDateFilter() {
       if (!fs) return false;
       return fs >= desdeStr && fs <= hastaStr;
     });
+
+    // Si "Últimos 7 días" (contra la fecha real de hoy) no tiene incidentes
+    // pero el archivo sí tiene datos en otro rango, no dejar la pantalla
+    // vacía: mostrar el rango completo disponible y avisar por qué.
+    if (G.rows.length === 0 && G.allRows.length > 0) {
+      const fechasDisp = G.allRows.map(r => (r.fechaStr || '').replace(/\//g, '-')).filter(Boolean).sort();
+      desdeStr = fechasDisp[0]; hastaStr = fechasDisp[fechasDisp.length - 1];
+      dLabel = desdeStr; hLabel = hastaStr;
+      G.rows = G.allRows.slice();
+      G.fallbackFromLast7 = true;
+    } else {
+      G.fallbackFromLast7 = false;
+    }
   } else {
     desdeStr = document.getElementById('filterDesde').value;
     hastaStr = document.getElementById('filterHasta').value;
@@ -564,9 +577,18 @@ function _doApplyDateFilter() {
     document.getElementById('periodLabel').textContent =
       `${fmtDate(dLabel)} — ${fmtDate(hLabel)}`;
   }
-  document.getElementById('filterCount').textContent = G.rows.length
-    ? `${G.rows.length} eventos`
-    : `⚠ Sin datos en el período consultado. Sólo últimos 90 días`;
+  if (G.fallbackFromLast7) {
+    document.getElementById('filterCount').textContent =
+      `${G.rows.length} eventos · sin incidentes en los últimos 7 días, mostrando todo el rango disponible`;
+    document.getElementById('filterMode').value = 'custom';
+    document.getElementById('customDates').style.display = 'flex';
+    document.getElementById('filterDesde').value = desdeStr;
+    document.getElementById('filterHasta').value = hastaStr;
+  } else {
+    document.getElementById('filterCount').textContent = G.rows.length
+      ? `${G.rows.length} eventos`
+      : `⚠ Sin datos en el período consultado. Sólo últimos 90 días`;
+  }
 
   rebuildAggregates();
   renderFlota();
