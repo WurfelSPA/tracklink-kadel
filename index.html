@@ -482,7 +482,7 @@ function renderApp() {
   // primera carga, para que el rango mostrado arriba coincida con los datos
   // realmente desplegados — antes se mostraba el rango completo del Excel
   // (hasta 90 días) aunque el filtro dijera "últimos 7 días".
-  _doApplyDateFilter();
+  _doApplyDateFilter(true);
 }
 
 // ══════════════════════════════════════════════════════
@@ -504,14 +504,19 @@ function applyDateFilter() {
 
   // Defer el trabajo pesado para que la UI se actualice primero
   setTimeout(() => {
-    _doApplyDateFilter();
+    _doApplyDateFilter(false);
     bar.style.display = 'none';
     btn.disabled = false;
     btn.textContent = 'Actualizar ▶';
   }, 30);
 }
 
-function _doApplyDateFilter() {
+// isInitial=true solo en la primera carga automática de la página: ahí sí
+// conviene mostrar el rango completo si "Últimos 7 días" viene vacío. Si el
+// usuario elige "Últimos 7 días" a propósito desde el selector, se respeta
+// su elección y se muestra el estado "sin datos" real (con el rango
+// disponible informado), en vez de saltar solo a "Fecha personalizada".
+function _doApplyDateFilter(isInitial) {
   const mode = document.getElementById('filterMode').value;
   let dLabel = '', hLabel = '';
   let desdeStr = '', hastaStr = ''; // "YYYY-MM-DD" para comparación de strings
@@ -538,8 +543,10 @@ function _doApplyDateFilter() {
 
     // Si "Últimos 7 días" (contra la fecha real de hoy) no tiene incidentes
     // pero el archivo sí tiene datos en otro rango, no dejar la pantalla
-    // vacía: mostrar el rango completo disponible y avisar por qué.
-    if (G.rows.length === 0 && G.allRows.length > 0) {
+    // vacía EN LA CARGA INICIAL: mostrar el rango completo disponible y
+    // avisar por qué. Si el usuario elige "Últimos 7 días" a propósito
+    // después, se respeta su elección (ver comentario en la firma de la función).
+    if (isInitial && G.rows.length === 0 && G.allRows.length > 0) {
       const fechasDisp = G.allRows.map(r => (r.fechaStr || '').replace(/\//g, '-')).filter(Boolean).sort();
       desdeStr = fechasDisp[0]; hastaStr = fechasDisp[fechasDisp.length - 1];
       dLabel = desdeStr; hLabel = hastaStr;
