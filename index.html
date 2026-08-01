@@ -226,7 +226,7 @@ canvas{display:block;}
 <header class="topbar" id="appTopbar" style="display:none;">
   <div class="brand">
     <span style="font-size:20px;font-weight:800;letter-spacing:-.5px;color:#1a3a6b;">KADEL</span>
-    <span class="client-pill" id="clientLabel">CARGANDO</span>
+    <span class="brand-name">Tracklink<span>Dashboard</span></span>
   </div>
   <div class="topbar-right">
     <span class="period-badge" id="periodLabel">—</span>
@@ -311,7 +311,6 @@ window.addEventListener('DOMContentLoaded', () => {
       loadExcel(DEFAULT_EXCEL_URL);
     }
   }
-  document.getElementById('clientLabel').textContent = CLIENT_NAME;
 });
 
 function applyConfig() {
