@@ -9,8 +9,16 @@
  *                  unidades fuera de monitoreo: LTTW96, TVKC50, PKGT50,
  *                  RHDZ45, SWFB15 — ver README para el mapeo patente→unitId)
  *
- * Clon de download-weekly.js (tracklink-santamarta), parametrizado por
- * cliente vía TL_UNIT_IDS en vez de hardcodear los unitIds en el código.
+ * IMPORTANTE: a diferencia de Santa Marta, esta llamada NO usa un reportName
+ * ni un tipo de reporte genéricos. TrackGTS exige que reportName, parameters,
+ * speed y el segmento de tipo de reporte en la URL coincidan exactamente con
+ * la definición del reporte "Excesos 100 Semanal" ya existente en la cuenta
+ * de KADEL (creado por Adriana Verc, reportTypeId 24) — de lo contrario el
+ * backend de TrackGTS devuelve 500 Internal Server Error. Estos valores NO
+ * se guardan ni se modifican desde este script (nunca se llama a "Guardar"),
+ * solo se replican para poder descargar el reporte de forma automática.
+ * Confirmado funcionando: 2026-08-01 (fetch directo + corrida real via
+ * GitHub Actions con estos valores exactos).
  */
 'use strict';
 
@@ -88,16 +96,16 @@ async function main() {
         startDate,
         endDate,
         unitIds,
-        reportName:          'INFORME EXCESOS DE VELOCIDAD',
-        parameters:          'undefined',
+        reportName:          'Excesos 100 Semanal',
+        parameters:          '  100  km/h',
         userTimeZone:        -4,
         userfuelMeasure:     0,
         userMeasureDistance: 0,
-        speed:               NaN,
+        speed:               100,
         language:            0,
       });
       const res = await fetch(
-        `https://www.trackgts.com:82/api/reportTravel/GetSpeedingReportByUnitsPagesZip/25/${h}`,
+        `https://www.trackgts.com:82/api/reportTravel/GetSpeedingReportByUnitsPagesZip/24/${h}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json;charset=UTF-8' }, body }
       );
       const json = await res.json();
