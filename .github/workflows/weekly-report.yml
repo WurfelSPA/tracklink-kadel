@@ -6,10 +6,11 @@
 # deja margen de 6 horas antes del envío de n8n a las 07:00 CLT.
 #
 # Flujo completo:
-#   1. Descarga datos TrackGTS para Lun–Dom de la semana anterior
-#   2. Fusiona con historial (merge_history.py)
-#   3. Genera el PDF del reporte (umbral 100 km/h, ver generate-pdf.js)
-#   4. Hace commit de Excel + PDF al repo (n8n los descarga desde acá)
+#   1. Descarga excesos de velocidad (>100 km/h) para Lun–Dom de la semana previa
+#   2. Fusiona con historial (merge_history.py) y genera reporte-semanal.pdf
+#   3. Descarga eventos de encendido y genera ranking-fuera-horario.pdf
+#      (regla: Lun-Vie 19:00-07:00 + Sáb/Dom todo el día — ver download-weekly-events.js)
+#   4. Hace commit de ambos Excel + PDF al repo (n8n los descarga desde acá)
 #
 # Secrets requeridos (Settings → Secrets → Actions):
 #   TL_USER      → usuario TrackGTS (mismo que Santa Marta: amelendez)
@@ -139,11 +140,29 @@ jobs:
         run: node generate-pdf.js
         timeout-minutes: 5
 
+      - name: Descargar eventos de encendido (ranking fuera de horario)
+        env:
+          TL_USER:     ${{ secrets.TL_USER }}
+          TL_PASSWORD: ${{ secrets.TL_PASSWORD }}
+          TL_DOMAIN:   ${{ secrets.TL_DOMAIN }}
+          TL_UNIT_IDS: ${{ secrets.TL_UNIT_IDS }}
+          TL_START:    ${{ steps.dates.outputs.tl_start }}
+          TL_END:      ${{ steps.dates.outputs.tl_end }}
+        run: node download-weekly-events.js
+        timeout-minutes: 8
+
+      - name: Generar PDF de ranking fuera de horario
+        env:
+          REPORT_START: ${{ steps.dates.outputs.start }}
+          REPORT_END:   ${{ steps.dates.outputs.end }}
+        run: node generate-pdf-ranking.js
+        timeout-minutes: 5
+
       - name: Commit y push
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "INFORME EXCESOS DE VELOCIDAD.xlsx" "reporte-semanal.pdf"
+          git add "INFORME EXCESOS DE VELOCIDAD.xlsx" "reporte-semanal.pdf" "latest-events.xlsx" "ranking-fuera-horario.pdf"
           git diff --staged --quiet \
             && echo "Sin cambios — nada que commitear." \
             || git commit -m "auto: reporte semana ${{ steps.dates.outputs.start }} → ${{ steps.dates.outputs.end }}"
