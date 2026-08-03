@@ -40,12 +40,19 @@ jobs:
         run: node download-weekly-events.js
         timeout-minutes: 8
 
+      - name: Generar PDF de ranking
+        env:
+          REPORT_START: '2026-07-27'
+          REPORT_END:   '2026-08-02'
+        run: node generate-pdf-ranking.js
+        timeout-minutes: 5
+
       - name: Commit y push (temporal, para inspeccionar)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "latest-events.xlsx"
+          git add "latest-events.xlsx" "ranking-fuera-horario.pdf"
           git diff --staged --quiet \
             && echo "Sin cambios — nada que commitear." \
-            || git commit -m "test: latest-events.xlsx (ranking fuera de horario)"
+            || git commit -m "test: latest-events.xlsx + ranking-fuera-horario.pdf"
           git push
