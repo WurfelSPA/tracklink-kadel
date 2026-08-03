@@ -142,6 +142,13 @@ async function main() {
       try { json = JSON.parse(text); } catch (e) {
         return { error: `Respuesta no-JSON: ${text.slice(0, 300)}` };
       }
+      // La API devuelve el array serializado dos veces (un string JSON que
+      // contiene el JSON real adentro) — parsear de nuevo si hace falta.
+      if (typeof json === 'string') {
+        try { json = JSON.parse(json); } catch (e) {
+          return { error: `Respuesta string no parseable como JSON: ${json.slice(0, 300)}` };
+        }
+      }
       if (json && json.idResult !== undefined) {
         return { error: `idResult=${json.idResult} (sesión expirada o sin datos)` };
       }
