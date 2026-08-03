@@ -1,0 +1,51 @@
+# Workflow TEMPORAL de prueba para validar download-weekly-events.js
+# (Ranking uso fuera de horario). Borrar una vez integrado a weekly-report.yml.
+name: TEST - Eventos Encendido
+
+on:
+  workflow_dispatch:
+    inputs:
+      override_start:
+        description: 'Fecha inicio YYYY/MM/DD HH:MM:SS'
+        required: false
+      override_end:
+        description: 'Fecha fin YYYY/MM/DD HH:MM:SS'
+        required: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependencias Node
+        run: npm install puppeteer xlsx
+        timeout-minutes: 5
+
+      - name: Descargar eventos de encendido
+        env:
+          TL_USER:     ${{ secrets.TL_USER }}
+          TL_PASSWORD: ${{ secrets.TL_PASSWORD }}
+          TL_DOMAIN:   ${{ secrets.TL_DOMAIN }}
+          TL_UNIT_IDS: ${{ secrets.TL_UNIT_IDS }}
+          TL_START:    ${{ github.event.inputs.override_start || '2026/07/27 04:00:00' }}
+          TL_END:      ${{ github.event.inputs.override_end || '2026/08/03 03:59:00' }}
+        run: node download-weekly-events.js
+        timeout-minutes: 8
+
+      - name: Commit y push (temporal, para inspeccionar)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "latest-events.xlsx"
+          git diff --staged --quiet \
+            && echo "Sin cambios — nada que commitear." \
+            || git commit -m "test: latest-events.xlsx (ranking fuera de horario)"
+          git push
