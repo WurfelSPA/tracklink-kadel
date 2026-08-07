@@ -67,6 +67,99 @@ function isOffHours(dateStr) {
   return totalMin >= 19 * 60 || totalMin < 7 * 60; // lunes a viernes: 19:00–07:00
 }
 
+// TrackGTS no siempre sostiene un login más si ya hubo 1-2 logins seguidos
+// de la misma cuenta en la corrida (confirmado 2026-08-03 y 2026-08-07: la
+// página se queda en login.html y la API responde idResult=-11 "sesión
+// expirada"). Reintenta con una pausa en vez de fallar toda la corrida.
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 45_000;
+
+async function loginAndFetchEventos(browser, { TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS }) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(60_000);
+    try {
+      const loginUrl = `https://${TL_DOMAIN}.trackgts.com/admin/login.html`;
+      console.log(`[1] Intento ${attempt}/${MAX_ATTEMPTS} — Login en: ${loginUrl}`);
+      await page.goto(loginUrl, { waitUntil: 'networkidle0', timeout: 60_000 });
+      await page.waitForSelector('#username', { timeout: 30_000 });
+
+      await page.evaluate(() => localStorage.setItem('sltLanguage', '0'));
+      await page.reload({ waitUntil: 'networkidle0' });
+      await page.waitForSelector('#username', { timeout: 30_000 });
+
+      await page.evaluate((user, password, domain) => {
+        const K  = 'd5fg4df5sg4ds5fg';
+        const S  = { a:'1', b:'2', c:'3', d:'4', e:'5', f:'6', g:'7', h:'8', i:'9' };
+        const k  = CryptoJS.enc.Utf8.parse(K);
+        const iv = CryptoJS.enc.Utf8.parse(K);
+        const a  = [];
+        for (const c of password) {
+          a.push(
+            CryptoJS.AES.encrypt(
+              CryptoJS.enc.Utf8.parse(S[c] || c), k,
+              { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
+            ).toString()
+          );
+        }
+        ARRAYPSWD = a;
+        document.getElementById('username').value = user;
+        document.getElementById('domain').value   = domain;
+        document.getElementById('password').value = '********';
+        LOGININPROCESS = false;
+        onLoginOn();
+      }, TL_USER, TL_PASSWORD, TL_DOMAIN);
+
+      console.log('[2] Esperando sesión (15s)...');
+      await new Promise(r => setTimeout(r, 15_000));
+      console.log(`[2] URL actual: ${page.url()}`);
+
+      console.log(`[3] Consultando eventos: ${TL_START} → ${TL_END}`);
+      const result = await page.evaluate(async (startDate, endDate, unitIds) => {
+        const h = JSONUSER.hash;
+        const body = JSON.stringify([{ startDate, endDate, unitIds, eventCode: '-109', checked: 2 }]);
+        const res = await fetch(
+          `https://www.trackgts.com:82/api/alerts/-1/3175/${h}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json;charset=UTF-8' }, body }
+        );
+        const text = await res.text();
+        let json;
+        try { json = JSON.parse(text); } catch (e) {
+          return { error: `Respuesta no-JSON: ${text.slice(0, 300)}` };
+        }
+        // La API devuelve el array serializado dos veces (un string JSON que
+        // contiene el JSON real adentro) — parsear de nuevo si hace falta.
+        if (typeof json === 'string') {
+          try { json = JSON.parse(json); } catch (e) {
+            return { error: `Respuesta string no parseable como JSON: ${json.slice(0, 300)}` };
+          }
+        }
+        if (json && json.idResult !== undefined) {
+          return { error: `idResult=${json.idResult} (sesión expirada o sin datos)` };
+        }
+        if (!Array.isArray(json)) {
+          return { error: `Respuesta inesperada (no es array): ${JSON.stringify(json).slice(0, 300)}` };
+        }
+        return { rows: json };
+      }, TL_START, TL_END, TL_UNIT_IDS);
+
+      if (result.error) throw new Error(result.error);
+      return result.rows || [];
+    } catch (err) {
+      lastError = err;
+      console.log(`[!] Intento ${attempt}/${MAX_ATTEMPTS} falló: ${err.message}`);
+      if (attempt < MAX_ATTEMPTS) {
+        console.log(`[!] Esperando ${RETRY_DELAY_MS / 1000}s antes de reintentar (posible límite de logins seguidos en TrackGTS)...`);
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      }
+    } finally {
+      await page.close();
+    }
+  }
+  throw lastError;
+}
+
 async function main() {
   const { TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS } = process.env;
 
@@ -89,78 +182,7 @@ async function main() {
   });
 
   try {
-    const page = await browser.newPage();
-    page.setDefaultTimeout(60_000);
-
-    // ── 1. Login (idéntico al resto de los scripts) ────────────────────────────
-    const loginUrl = `https://${TL_DOMAIN}.trackgts.com/admin/login.html`;
-    console.log(`[1] Login en: ${loginUrl}`);
-    await page.goto(loginUrl, { waitUntil: 'networkidle0', timeout: 60_000 });
-    await page.waitForSelector('#username', { timeout: 30_000 });
-
-    await page.evaluate(() => localStorage.setItem('sltLanguage', '0'));
-    await page.reload({ waitUntil: 'networkidle0' });
-    await page.waitForSelector('#username', { timeout: 30_000 });
-
-    await page.evaluate((user, password, domain) => {
-      const K  = 'd5fg4df5sg4ds5fg';
-      const S  = { a:'1', b:'2', c:'3', d:'4', e:'5', f:'6', g:'7', h:'8', i:'9' };
-      const k  = CryptoJS.enc.Utf8.parse(K);
-      const iv = CryptoJS.enc.Utf8.parse(K);
-      const a  = [];
-      for (const c of password) {
-        a.push(
-          CryptoJS.AES.encrypt(
-            CryptoJS.enc.Utf8.parse(S[c] || c), k,
-            { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
-          ).toString()
-        );
-      }
-      ARRAYPSWD = a;
-      document.getElementById('username').value = user;
-      document.getElementById('domain').value   = domain;
-      document.getElementById('password').value = '********';
-      LOGININPROCESS = false;
-      onLoginOn();
-    }, TL_USER, TL_PASSWORD, TL_DOMAIN);
-
-    console.log('[2] Esperando sesión (15s)...');
-    await new Promise(r => setTimeout(r, 15_000));
-    console.log(`[2] URL actual: ${page.url()}`);
-
-    // ── 2. Pedir eventos de encendido (Motor Encendido, eventCode -109) ────────
-    console.log(`[3] Consultando eventos: ${TL_START} → ${TL_END}`);
-    const result = await page.evaluate(async (startDate, endDate, unitIds) => {
-      const h = JSONUSER.hash;
-      const body = JSON.stringify([{ startDate, endDate, unitIds, eventCode: '-109', checked: 2 }]);
-      const res = await fetch(
-        `https://www.trackgts.com:82/api/alerts/-1/3175/${h}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json;charset=UTF-8' }, body }
-      );
-      const text = await res.text();
-      let json;
-      try { json = JSON.parse(text); } catch (e) {
-        return { error: `Respuesta no-JSON: ${text.slice(0, 300)}` };
-      }
-      // La API devuelve el array serializado dos veces (un string JSON que
-      // contiene el JSON real adentro) — parsear de nuevo si hace falta.
-      if (typeof json === 'string') {
-        try { json = JSON.parse(json); } catch (e) {
-          return { error: `Respuesta string no parseable como JSON: ${json.slice(0, 300)}` };
-        }
-      }
-      if (json && json.idResult !== undefined) {
-        return { error: `idResult=${json.idResult} (sesión expirada o sin datos)` };
-      }
-      if (!Array.isArray(json)) {
-        return { error: `Respuesta inesperada (no es array): ${JSON.stringify(json).slice(0, 300)}` };
-      }
-      return { rows: json };
-    }, TL_START, TL_END, TL_UNIT_IDS);
-
-    if (result.error) throw new Error(result.error);
-
-    const rawRows = result.rows || [];
+    const rawRows = await loginAndFetchEventos(browser, { TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS });
     console.log(`[4] Registros crudos recibidos (con posibles duplicados): ${rawRows.length}`);
 
     // ── 3. Deduplicar por (unitId + timestamp exacto) ──────────────────────────
