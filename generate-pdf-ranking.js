@@ -452,7 +452,7 @@ function generateHTML(s) {
   </div>
   <div class="cv-right">
     <div class="cv-eyebrow">${eyebrow}</div>
-    <h1 class="cv-title">Ranking de Uso Fuera de Horario</h1>
+    <h1 class="cv-title">Informe Ejecutivo — Ranking de Uso Fuera de Horario</h1>
     <p class="cv-sub">${CONFIG.siteName} · Período: ${s.rangeVerbose}</p>
     <p class="cv-desc">Durante la semana analizada se registraron <strong>${s.totalFuera} encendidos fuera de horario</strong> de un total de ${s.totalEncendidos} encendidos registrados. Se considera fuera de horario: lunes a viernes de 19:00 a 07:00, y sábado y domingo todo el día. Este reporte identifica las unidades con mayor uso fuera de faena, con el objetivo de apoyar el control operacional.</p>
   </div>

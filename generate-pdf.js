@@ -603,7 +603,7 @@ function generateHTML(s) {
   </div>
   <div class="cv-right">
     <div class="cv-eyebrow">${eyebrow}</div>
-    <h1 class="cv-title">Reporte de Excesos de Velocidad</h1>
+    <h1 class="cv-title">Informe Ejecutivo — Excesos de Velocidad</h1>
     <p class="cv-sub">${SITE_NAME} · Período: ${s.rangeVerbose}</p>
     <p class="cv-desc">Durante la semana analizada se registraron un total de <strong>${s.totalIncidencias} excesos de velocidad</strong> (umbral ${CONFIG.speedThreshold} km/h) en la flota vehicular monitoreada. Este reporte presenta un análisis por unidad, franja horaria y día de la semana, con el objetivo de identificar patrones de riesgo y apoyar la toma de decisiones en materia de seguridad vial operacional.</p>
   </div>
