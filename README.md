@@ -19,6 +19,14 @@ y lo envía por email a las 07:00 CLT.
 - [ ] **PENDIENTE: cargar el secret `TL_UNIT_IDS`** en GitHub (Settings → Secrets → Actions) con el valor de la sección siguiente
 - [ ] Prueba end-to-end contra el Excel de referencia antes de producción
 - [ ] Activar workflow n8n y GitHub Action una vez validado
+- [x] Pestaña "Reportes" en el dashboard con enlaces de descarga a Reporte (Excel) e Informe Ejecutivo (PDF), para Excesos de Velocidad y Ranking Fuera de Horario — agregada 2026-08-07
+
+## Nomenclatura de documentos (vigente desde 2026-08-07)
+
+- **Reporte**: archivo Excel generado desde la plataforma, con el detalle y
+  los datos base de los eventos.
+- **Informe Ejecutivo**: documento PDF elaborado a partir del Reporte, con
+  indicadores, análisis, gráficos, conclusiones y recomendaciones.
 
 ## Mapeo de unidades (HealthCheck_171, 2026-08-01)
 
