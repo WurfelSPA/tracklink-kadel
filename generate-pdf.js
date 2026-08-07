@@ -518,7 +518,7 @@ function generateHTML(s) {
 
   const eyebrow = CONFIG.logoUrl
     ? `<img src="${CONFIG.logoUrl}" style="height:140px;width:auto;object-fit:contain;" alt="">`
-    : `<div style="font-size:15px;font-weight:800;letter-spacing:.35em;color:#1a202c;">${escapeHtml(CONFIG.siteName)}</div>`;
+    : `<div style="font-size:32px;font-weight:800;letter-spacing:.2em;color:#1a202c;">${escapeHtml(CONFIG.siteName)}</div>`;
 
   return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
