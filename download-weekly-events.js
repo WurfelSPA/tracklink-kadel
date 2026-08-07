@@ -68,18 +68,29 @@ function isOffHours(dateStr) {
 }
 
 // TrackGTS no siempre sostiene un login más si ya hubo 1-2 logins seguidos
-// de la misma cuenta en la corrida (confirmado 2026-08-03 y 2026-08-07: la
-// página se queda en login.html y la API responde idResult=-11 "sesión
-// expirada"). Reintenta con una pausa en vez de fallar toda la corrida.
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 45_000;
+// de la misma cuenta en poco tiempo (confirmado 2026-08-07: 5 intentos
+// seguidos fallaron en ~25 minutos, la página se queda en login.html y la
+// API responde idResult=-11 "sesión expirada" — mismo comportamiento de
+// rate-limit por cuenta ya visto en /api/sync de la app STLC, ahí con
+// mensaje explícito de "~20 minutos"). Por eso:
+//   - cada intento usa un browser nuevo desde cero (no solo una pestaña
+//     nueva), para no heredar cookies/localStorage de un intento fallido
+//   - la espera entre intentos es de minutos, no segundos — hay ~6 horas
+//     de margen entre esta corrida (lunes 01:00 CLT) y el envío de n8n
+//     (lunes 07:00 CLT), así que de sobra para esperar un rate-limit real
+const MAX_ATTEMPTS = 4;
+const RETRY_DELAY_MS = 7 * 60_000;
 
-async function loginAndFetchEventos(browser, { TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS }) {
+async function loginAndFetchEventos({ TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS }) {
   let lastError;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const page = await browser.newPage();
-    page.setDefaultTimeout(60_000);
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
     try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(60_000);
       const loginUrl = `https://${TL_DOMAIN}.trackgts.com/admin/login.html`;
       console.log(`[1] Intento ${attempt}/${MAX_ATTEMPTS} — Login en: ${loginUrl}`);
       await page.goto(loginUrl, { waitUntil: 'networkidle0', timeout: 60_000 });
@@ -150,11 +161,11 @@ async function loginAndFetchEventos(browser, { TL_USER, TL_PASSWORD, TL_DOMAIN, 
       lastError = err;
       console.log(`[!] Intento ${attempt}/${MAX_ATTEMPTS} falló: ${err.message}`);
       if (attempt < MAX_ATTEMPTS) {
-        console.log(`[!] Esperando ${RETRY_DELAY_MS / 1000}s antes de reintentar (posible límite de logins seguidos en TrackGTS)...`);
+        console.log(`[!] Esperando ${Math.round(RETRY_DELAY_MS / 60_000)} min antes de reintentar (posible rate-limit de login en TrackGTS)...`);
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
       }
     } finally {
-      await page.close();
+      await browser.close();
     }
   }
   throw lastError;
@@ -176,16 +187,10 @@ async function main() {
   console.log(`=== Download Weekly KADEL (Eventos - Motor Encendido): ${TL_START} → ${TL_END} ===`);
   console.log(`Unidades incluidas: ${TL_UNIT_IDS}`);
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  });
+  const rawRows = await loginAndFetchEventos({ TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS });
+  console.log(`[4] Registros crudos recibidos (con posibles duplicados): ${rawRows.length}`);
 
-  try {
-    const rawRows = await loginAndFetchEventos(browser, { TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS });
-    console.log(`[4] Registros crudos recibidos (con posibles duplicados): ${rawRows.length}`);
-
-    // ── 3. Deduplicar por (unitId + timestamp exacto) ──────────────────────────
+  // ── 3. Deduplicar por (unitId + timestamp exacto) ──────────────────────────
     const seen = new Map();
     for (const r of rawRows) {
       const key = `${r.unitida0}|${r.gpsUtcTimeC13}`;
@@ -232,10 +237,6 @@ async function main() {
     XLSX.writeFile(wb, dest);
     console.log(`[6] Guardado como: ${dest}`);
     console.log('=== COMPLETADO ===');
-
-  } finally {
-    await browser.close();
-  }
 }
 
 main().catch(err => {
