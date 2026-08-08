@@ -36,6 +36,11 @@ const CONFIG = {
   footerLabel:    'KADEL',
   logoUrl:        null, // KADEL no tiene isotipo — se usa wordmark de texto en la portada
   speedThreshold: 100,  // km/h — filas por debajo se descartan (ver nota arriba)
+  speedMaxPlausible: 200, // km/h — red de seguridad: por encima es GPS/sensor fallado,
+                          // no un exceso real (confirmado 2026-08-08 en Enerfrost: una
+                          // unidad acumuló decenas de lecturas de 177-374 km/h que
+                          // TrackGTS ya no reporta — se descartan para que no inflen
+                          // el conteo semanal sin que nadie lo note)
   colorDark:      '#1a2744', // navy — portada, KPI, badges
   colorDarker:    '#0f1c33', // navy oscuro — degradé de portada
   colorMid:       '#22406f', // navy medio — degradé de portada
@@ -151,6 +156,7 @@ function parseAndFilter(buffer, startDate, endDate) {
 
     const vel = parseFloat(String(obj[columns.velocidad] || '0').replace(',', '.')) || 0;
     if (vel < CONFIG.speedThreshold) continue; // red de seguridad: respeta el umbral pactado
+    if (vel > CONFIG.speedMaxPlausible) continue; // red de seguridad: GPS/sensor fallado, no exceso real
 
     const aliasVal     = String(obj[columns.alias] || '').trim();
     const conductorRaw = columns.conductor ? String(obj[columns.conductor] || '').trim() : '';
