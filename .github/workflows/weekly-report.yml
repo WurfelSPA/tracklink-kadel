@@ -145,7 +145,14 @@ jobs:
         run: node generate-pdf.js
         timeout-minutes: 5
 
+      # continue-on-error: si TrackGTS sigue rechazando el login automatizado
+      # después de los 4 reintentos (confirmado 2026-08-08: pasa incluso con
+      # 7 min de espera entre intentos, aunque el login manual funciona bien),
+      # que NO se lleve con él el reporte de excesos que ya se generó arriba.
+      # El commit final solo sube lo que realmente cambió esta corrida.
       - name: Descargar eventos de encendido (ranking fuera de horario)
+        id: eventos
+        continue-on-error: true
         env:
           TL_USER:     ${{ secrets.TL_USER }}
           TL_PASSWORD: ${{ secrets.TL_PASSWORD }}
@@ -156,7 +163,12 @@ jobs:
         run: node download-weekly-events.js
         timeout-minutes: 30
 
+      # Si la descarga de eventos falló (ver continue-on-error arriba), no
+      # regenerar el PDF: usaría el Excel de la semana pasada contra el rango
+      # de fechas de esta semana y saldría vacío. Mejor dejar el PDF anterior
+      # intacto que reemplazarlo por uno vacío.
       - name: Generar PDF de ranking fuera de horario
+        if: steps.eventos.outcome == 'success'
         env:
           REPORT_START: ${{ steps.dates.outputs.start }}
           REPORT_END:   ${{ steps.dates.outputs.end }}
@@ -172,3 +184,13 @@ jobs:
             && echo "Sin cambios — nada que commitear." \
             || git commit -m "auto: reporte semana ${{ steps.dates.outputs.start }} → ${{ steps.dates.outputs.end }}"
           git push
+
+      # Se ejecuta al final, después de que el commit de excesos ya subió.
+      # Marca la corrida completa como fallida (visible en rojo en Actions)
+      # si el ranking fuera de horario no se pudo generar esta semana, sin
+      # haber bloqueado la entrega de excesos de velocidad.
+      - name: Verificar que no falte el ranking fuera de horario
+        if: steps.eventos.outcome != 'success'
+        run: |
+          echo "::error::Ranking fuera de horario NO se actualizó esta semana (TrackGTS rechazó el login automatizado tras 4 intentos). Excesos de velocidad sí se subió normal. Reintentar manualmente 'Descargar eventos de encendido' o correr el workflow completo de nuevo."
+          exit 1
