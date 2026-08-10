@@ -10,17 +10,22 @@
  * TrackGTS (pantalla "Eventos" → Unidad: Seleccionados, Evento: Motor
  * Encendido, Filtro: Últimos 7 días).
  *
- * La respuesta trae un registro JSON por cada instancia de encendido, y
- * TrackGTS ya incluye una clasificación "Fuera horario"/"dentro horario"
- * en el campo unitsCustomerSensorIdName — pero esa clasificación depende de
- * la regla configurada por unidad en su alerta (que no todas tienen, y que
- * se fue configurando a mitad de semana), así que NO es confiable como
- * fuente única. Además el mismo encendido físico puede aparecer dos veces
- * (una vez por cada alerta "dentro"/"fuera" asociada a la unidad).
+ * La respuesta NO trae un registro por encendido, sino un registro por cada
+ * ping de posición (msgTypeC0: IGN/POS-T/POS-H) que el vehículo envía
+ * MIENTRAS la alerta "Motor Encendido" sigue activa — confirmado 2026-08-10
+ * tras reporte de Rafael de que el ranking no calzaba: un solo encendido
+ * real de varias horas aparecía como decenas de filas con timestamps
+ * distintos pero el mismo `alertid`. TrackGTS también incluye una
+ * clasificación "Fuera horario"/"dentro horario" en el campo
+ * unitsCustomerSensorIdName, pero depende de la regla configurada por unidad
+ * (no todas tienen, se fue configurando a mitad de semana), así que NO es
+ * confiable como fuente única.
  *
  * Por eso este script:
- *   1. Deduplica por (unitId + timestamp exacto) — un encendido físico
- *      cuenta una sola vez, sin importar cuántas alertas lo referencian.
+ *   1. Agrupa por (unitId + alertid) — un encendido físico cuenta una sola
+ *      vez sin importar cuántos pings de posición genere mientras el motor
+ *      sigue prendido; se usa el ping más antiguo del grupo como instante
+ *      real del encendido.
  *   2. Clasifica "fuera de horario" él mismo, con la regla exacta que dio
  *      Rafael (Track Link) el 2026-08-01:
  *        - Lunes a viernes: encendidos entre las 19:00 y las 07:00 (del
@@ -190,40 +195,40 @@ async function main() {
   const rawRows = await loginAndFetchEventos({ TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS });
   console.log(`[4] Registros crudos recibidos (con posibles duplicados): ${rawRows.length}`);
 
-  // DIAGNÓSTICO 2026-08-09: Rafael reportó que el ranking fuera de horario no
-  // calza — sospecha que estamos contando otros tipos de evento además de
-  // Motor Encendido, no solo eventCode='-109' pedido en el body. Volcamos la
-  // forma cruda de las primeras filas para confirmar qué campo (si alguno)
-  // identifica el tipo de alarma/evento, y si varía entre filas.
-  if (rawRows.length > 0) {
-    console.log('[DIAG] Keys de la primera fila cruda:', Object.keys(rawRows[0]).join(', '));
-    console.log('[DIAG] Primeras 5 filas crudas (JSON completo):');
-    rawRows.slice(0, 5).forEach((r, i) => console.log(`[DIAG]   [${i}]`, JSON.stringify(r)));
-    const typeLikeKeys = Object.keys(rawRows[0]).filter(k => /alarm|event|type|tipo/i.test(k));
-    for (const k of typeLikeKeys) {
-      const uniq = [...new Set(rawRows.map(r => r[k]))];
-      console.log(`[DIAG] Valores únicos de "${k}" (${uniq.length}):`, uniq.slice(0, 20));
-    }
-  }
-
-  // ── 3. Deduplicar por (unitId + timestamp exacto) ──────────────────────────
-    const seen = new Map();
+  // ── 3. Agrupar por (unitId + alertid) ───────────────────────────────────────
+  // CONFIRMADO 2026-08-10 (Rafael reportó que el ranking no calzaba): TrackGTS
+  // no manda un registro por encendido, manda un registro por CADA ping de
+  // posición (msgTypeC0: IGN/POS-T/POS-H) mientras la alerta "Motor Encendido"
+  // sigue activa — es decir, un solo encendido real que duró varias horas
+  // aparece en la API como decenas de filas con timestamps distintos pero el
+  // mismo `alertid`. Deduplicar por timestamp exacto (como antes) contaba cada
+  // ping como un encendido nuevo e inflaba el conteo ~5-10x. El identificador
+  // correcto de "un encendido real" es `alertid`; nos quedamos con el ping más
+  // antiguo de cada grupo como el instante real del encendido.
+    const groups = new Map();
     for (const r of rawRows) {
-      const key = `${r.unitida0}|${r.gpsUtcTimeC13}`;
-      if (!seen.has(key)) {
-        seen.set(key, {
-          unitId: r.unitida0,
-          alias:  r.unitalias,
-          fecha:  r.gpsUtcTimeC13,
-        });
+      const key = (r.alertid !== undefined && r.alertid !== null)
+        ? `${r.unitida0}|${r.alertid}`
+        : `${r.unitida0}|${r.gpsUtcTimeC13}`; // red de seguridad si no hay alertid
+      const existing = groups.get(key);
+      if (!existing || r.gpsUtcTimeC13 < existing.gpsUtcTimeC13) {
+        groups.set(key, r);
       }
+    }
+    const seen = new Map();
+    for (const [key, r] of groups) {
+      seen.set(key, {
+        unitId: r.unitida0,
+        alias:  r.unitalias,
+        fecha:  r.gpsUtcTimeC13,
+      });
     }
     const eventos = [...seen.values()].map(e => ({
       ...e,
       fueraHorario: isOffHours(e.fecha),
     })).sort((a, b) => a.alias.localeCompare(b.alias) || a.fecha.localeCompare(b.fecha));
 
-    console.log(`[5] Encendidos únicos (deduplicados): ${eventos.length}`);
+    console.log(`[5] Encendidos reales (agrupados por alertid, de ${rawRows.length} filas crudas): ${eventos.length}`);
     console.log(`[5] Fuera de horario: ${eventos.filter(e => e.fueraHorario).length}`);
 
     // ── 4. Armar .xlsx (Detalle + Resumen por Unidad) ──────────────────────────

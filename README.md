@@ -54,6 +54,23 @@ su propio default. `generate-pdf.js` aplica un filtro adicional
 (`CONFIG.speedThreshold = 100`) como red de seguridad para respetar el
 umbral pactado con el cliente.
 
+### ⚠ Incidente 2026-08-10: ranking fuera de horario con conteo inflado
+
+Rafael reportó que "los valores no coinciden" en el informe de ranking
+fuera de horario. Causa: la API de eventos de TrackGTS no manda un
+registro por encendido, manda un registro por **cada ping de posición**
+(`msgTypeC0`: IGN/POS-T/POS-H) que la unidad envía mientras la alerta
+"Motor Encendido" sigue activa — un solo encendido real de varias horas
+aparecía como decenas de filas con timestamps distintos pero el mismo
+`alertid`. `download-weekly-events.js` deduplicaba por (unitId + timestamp
+exacto), así que contaba cada ping como un encendido nuevo (inflación de
+~5-10x sobre el valor real).
+
+Fix: se agrupa por `(unitId + alertid)` — cada `alertid` es una instancia
+real de encendido, sin importar cuántos pings de posición genere mientras
+el motor sigue prendido. Se usa el ping más antiguo del grupo como el
+instante real del encendido para la clasificación fuera/dentro de horario.
+
 ## Secrets requeridos (Settings → Secrets → Actions)
 
 | Secret        | Descripción                                                  |
