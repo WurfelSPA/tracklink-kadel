@@ -190,6 +190,22 @@ async function main() {
   const rawRows = await loginAndFetchEventos({ TL_USER, TL_PASSWORD, TL_DOMAIN, TL_START, TL_END, TL_UNIT_IDS });
   console.log(`[4] Registros crudos recibidos (con posibles duplicados): ${rawRows.length}`);
 
+  // DIAGNÓSTICO 2026-08-09: Rafael reportó que el ranking fuera de horario no
+  // calza — sospecha que estamos contando otros tipos de evento además de
+  // Motor Encendido, no solo eventCode='-109' pedido en el body. Volcamos la
+  // forma cruda de las primeras filas para confirmar qué campo (si alguno)
+  // identifica el tipo de alarma/evento, y si varía entre filas.
+  if (rawRows.length > 0) {
+    console.log('[DIAG] Keys de la primera fila cruda:', Object.keys(rawRows[0]).join(', '));
+    console.log('[DIAG] Primeras 5 filas crudas (JSON completo):');
+    rawRows.slice(0, 5).forEach((r, i) => console.log(`[DIAG]   [${i}]`, JSON.stringify(r)));
+    const typeLikeKeys = Object.keys(rawRows[0]).filter(k => /alarm|event|type|tipo/i.test(k));
+    for (const k of typeLikeKeys) {
+      const uniq = [...new Set(rawRows.map(r => r[k]))];
+      console.log(`[DIAG] Valores únicos de "${k}" (${uniq.length}):`, uniq.slice(0, 20));
+    }
+  }
+
   // ── 3. Deduplicar por (unitId + timestamp exacto) ──────────────────────────
     const seen = new Map();
     for (const r of rawRows) {
