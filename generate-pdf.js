@@ -13,9 +13,13 @@
  *     todo lo que el sistema marca como "exceso" según su propio default —
  *     este filtro es la red de seguridad para que el informe respete el
  *     umbral pactado con el cliente incluso si ese default cambia)
- *   - Sin columna "Conductor" en el Excel de KADEL → generate-pdf.js ya
- *     agrupa por Unidad automáticamente (mismo fallback que usa Santa Marta
- *     cuando falta esa columna), así que no hace falta tocar esa lógica.
+ *   - CONFIG.groupByAlias = true → KADEL sí trae columna "Conductor" en el
+ *     Excel (confirmado 2026-08-12: poblada solo para algunas unidades), pero
+ *     el cliente pidió ver sus unidades por Alias, no por conductor — se
+ *     ignora esa columna a propósito para que TODAS las unidades se agrupen
+ *     y etiqueten por Alias de forma consistente (antes salía una mezcla de
+ *     apellido de conductor para las unidades con ese dato y "Unidad XXX"
+ *     para las que no).
  *
  * Variables de entorno esperadas:
  *   REPORT_START — "YYYY-MM-DD"
@@ -41,6 +45,9 @@ const CONFIG = {
                           // unidad acumuló decenas de lecturas de 177-374 km/h que
                           // TrackGTS ya no reporta — se descartan para que no inflen
                           // el conteo semanal sin que nadie lo note)
+  groupByAlias:   true,   // KADEL pidió ver sus unidades por Alias, no por
+                          // Conductor (2026-08-12) — ignora la columna
+                          // "Conductor" del Excel aunque venga poblada
   colorDark:      '#1a2744', // navy — portada, KPI, badges
   colorDarker:    '#0f1c33', // navy oscuro — degradé de portada
   colorMid:       '#22406f', // navy medio — degradé de portada
@@ -131,7 +138,7 @@ function parseAndFilter(buffer, startDate, endDate) {
 
   const columns = {
     alias:     headers[aliasIdx]     || 'Alias',
-    conductor: conductorIdx >= 0 ? headers[conductorIdx] : null,
+    conductor: (!CONFIG.groupByAlias && conductorIdx >= 0) ? headers[conductorIdx] : null,
     fecha:     headers[fechaIdx]     || 'Fecha de Inicio',
     velocidad: headers[velIdx],
   };
@@ -280,7 +287,10 @@ function computeStats(rows, columns, startDate, endDate) {
       return {
         rawName: name,
         name: label,
-        nameAbbr: data.vehicleOnly ? (code || name) : abbreviateName(name),
+        // nameAbbr alimenta la tabla (columna "Unidad") — cuando se agrupa
+        // por alias mostramos el alias completo (pedido de KADEL 2026-08-12),
+        // no solo el código corto extraído.
+        nameAbbr: data.vehicleOnly ? name : abbreviateName(name),
         nameUpper: data.vehicleOnly ? (code || String(name).toUpperCase()) : String(name).toUpperCase(),
         unitCode: code,
         unitModel: model,
