@@ -197,8 +197,16 @@ function parseFecha(val) {
 function pad(n) { return String(n).padStart(2, '0'); }
 
 function splitAlias(alias) {
+  // El código de unidad (ej. "TDLD-98") es el segmento con guión, no
+  // necesariamente el último token — muchos alias de KADEL terminan en el
+  // apellido de un conductor (ej. "GV TDLD-98 J PACHECHO"), lo que hacía que
+  // la versión anterior (siempre el último token) devolviera "PACHECHO"
+  // como código de unidad en vez de "TDLD-98" — corregido 2026-08-12, mismo
+  // fix aplicado en generate-pdf-ranking.js y en tracklink-enerfrost.
   const parts = String(alias || '').trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { model: '', code: '' };
+  const codeIdx = parts.findIndex((p) => /-/.test(p));
+  if (codeIdx >= 0) return { model: parts.slice(0, codeIdx).join(' '), code: parts[codeIdx] };
   const code  = parts[parts.length - 1];
   const model = parts.slice(0, -1).join(' ');
   return { model, code };
