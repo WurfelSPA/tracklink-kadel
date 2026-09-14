@@ -2,8 +2,16 @@
 # GitHub Action: Descarga semanal + Generación automática de PDF
 # Flota KADEL — Tracklink Chile
 #
-# Corre cada lunes a la 01:00 CLT (05:00 UTC) — mismo horario que Santa Marta,
+# Corre cada lunes a la 01:20 CLT (05:20 UTC) — 20 min después de Santa Marta,
 # deja margen de 6 horas antes del envío de n8n a las 07:00 CLT.
+#
+# ⚠ Desfasado 2026-09-14: Santa Marta, Kadel y Enerfrost corrían los tres al
+# mismo horario (0 5 * * 1) y usan la MISMA cuenta TrackGTS (amelendez). Los
+# logins concurrentes gatillaban el rate-limit de cuenta ya visto en
+# download-weekly.js (fallo confirmado 2026-09-14: Kadel y Enerfrost
+# fallaron los 4 intentos en ~24m46s cada uno mientras Santa Marta corría en
+# paralelo). Se separan los tres horarios 20 min entre sí para que no compitan
+# por el login: Santa Marta 05:00 UTC, Kadel 05:20 UTC, Enerfrost 05:40 UTC.
 #
 # Flujo completo:
 #   1. Descarga excesos de velocidad (>100 km/h) para Lun–Dom de la semana previa
@@ -26,7 +34,7 @@ name: Descarga y Reporte Semanal
 
 on:
   schedule:
-    - cron: '0 5 * * 1'
+    - cron: '20 5 * * 1'
 
   workflow_dispatch:
     inputs:
